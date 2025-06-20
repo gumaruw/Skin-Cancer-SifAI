@@ -39,3 +39,5 @@ pip install tensorflow matplotlib opencv-python pillow numpy
 - Test kodunu kullan
 - Virtual Environment:
 
+## Model 
+- https://drive.google.com/drive/folders/1RKIYV1J6zSe0zLmM7GaBnvOKj0qh-77-?usp=sharing
