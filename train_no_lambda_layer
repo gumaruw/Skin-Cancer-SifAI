@@ -1,0 +1,395 @@
+import re
+numbers = re.compile(r'(\d+)')
+def numericalSort(value):
+    parts = numbers.split(value)
+    parts[1::2] = map(int, parts[1::2])
+    return parts
+
+import tensorflow as tf
+import glob
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
+# Collect all image file paths
+train_images = glob.glob('../input/skin-cancer-mnist-ham10000/HAM10000_images_part_1/*.jpg') + glob.glob('../input/skin-cancer-mnist-ham10000/HAM10000_images_part_2/*.jpg')
+train_masks = glob.glob('../input/ham10000-lesion-segmentations/HAM10000_segmentations_lesion_tschandl/*.png')
+
+print(f"Total images: {len(train_images)}")
+print(f"Total masks: {len(train_masks)}")
+
+# Sort images and masks based on the filename without extensions
+def sort_by_filename(images, masks):
+    # Extract filenames without extensions
+    image_filenames = [os.path.splitext(os.path.basename(img))[0] for img in images]
+    mask_filenames = [os.path.splitext(os.path.basename(mask))[0] for mask in masks]
+
+    # Sort both the images and masks based on the filenames
+    sorted_image_paths = [img for _, img in sorted(zip(image_filenames, images))]
+    sorted_mask_paths = [mask for _, mask in sorted(zip(mask_filenames, masks))]
+    
+    return sorted_image_paths, sorted_mask_paths
+
+# Sort images and masks
+train_images, train_masks = sort_by_filename(train_images, train_masks)
+
+# Function to load and preprocess an image - NORMALIZATION LAYER REMOVED
+def load_image(image_path, mask_path):
+    image = tf.io.read_file(image_path)
+    image = tf.image.decode_jpeg(image, channels=3)  # Decode as RGB
+    image = tf.image.resize(image, (256, 256))  # Resize if needed
+    image = tf.cast(image, tf.float32) / 255.0  # Manual normalization - CRITICAL CHANGE
+
+    mask = tf.io.read_file(mask_path)
+    mask = tf.image.decode_png(mask, channels=1)  # Decode as grayscale
+    mask = tf.image.resize(mask, (256, 256))  # Resize if needed
+    mask = tf.cast(mask, tf.float32) / 255.0  # Normalize
+
+    return image, mask
+
+# Create a TensorFlow dataset (lazy loading)
+dataset = tf.data.Dataset.from_tensor_slices((train_images, train_masks))
+dataset = dataset.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)  # Load in parallel
+dataset = dataset.batch(32).prefetch(tf.data.AUTOTUNE)  # Process in batches, optimize performance
+
+# Split the dataset into train and test sets
+train_size = int(0.8 * len(train_images))  # 80% for training
+test_size = len(train_images) - train_size  # 20% for testing
+
+# Split using `take` and `skip`
+train_dataset = dataset.take(train_size // 32)  # Take first 80% for training
+test_dataset = dataset.skip(train_size // 32)  # Skip the first 80% for testing
+
+# Show input shapes for the first batch
+for images, masks in dataset.take(1):
+    print("Shape of images in the first batch:", images.shape)  # (batch_size, height, width, channels)
+    print("Shape of masks in the first batch:", masks.shape)  # (batch_size, height, width)
+
+# Function to plot images and their corresponding masks
+def plot_images_and_masks(dataset, num_samples=3):
+    plt.figure(figsize=(10, 10))
+    
+    for i, (images, masks) in enumerate(dataset.take(1)):
+        for j in range(num_samples):
+            ax1 = plt.subplot(num_samples, 2, 2 * j + 1)
+            ax1.set_title("Input Image")
+            plt.imshow(images[j])  # Display the image
+            ax1.axis("off")
+
+            ax2 = plt.subplot(num_samples, 2, 2 * j + 2)
+            ax2.set_title("Ground Truth Mask")
+            plt.imshow(masks[j], cmap='gray')  # Display the mask in grayscale
+            ax2.axis("off")
+        
+        plt.show()
+        break  # Display only the first batch
+
+# Call the function to display some images and masks
+plot_images_and_masks(train_dataset, num_samples=3)
+
+# Define image size and channels
+IMG_HEIGHT = 256  # Adjust this according to your data
+IMG_WIDTH = 256   # Adjust this according to your data
+IMG_CHANNELS = 3  # 1 for grayscale, 3 for RGB
+
+# BUILD THE MODEL - LAMBDA LAYER REMOVED
+def build_unet_model(img_height=256, img_width=256, img_channels=3):
+    """
+    U-Net modeli oluştur - Lambda layer kullanmadan
+    """
+    inputs = tf.keras.layers.Input((img_height, img_width, img_channels))
+    
+    # LAMBDA LAYER REMOVED - Input directly used (normalization done in preprocessing)
+    
+    # Contraction path (Encoder)
+    c1 = tf.keras.layers.Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(inputs)
+    c1 = tf.keras.layers.Dropout(0.1)(c1)
+    c1 = tf.keras.layers.Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c1)
+    p1 = tf.keras.layers.MaxPooling2D((2, 2))(c1)
+
+    c2 = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(p1)
+    c2 = tf.keras.layers.Dropout(0.1)(c2)
+    c2 = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c2)
+    p2 = tf.keras.layers.MaxPooling2D((2, 2))(c2)
+
+    c3 = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(p2)
+    c3 = tf.keras.layers.Dropout(0.2)(c3)
+    c3 = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c3)
+    p3 = tf.keras.layers.MaxPooling2D((2, 2))(c3)
+
+    c4 = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(p3)
+    c4 = tf.keras.layers.Dropout(0.2)(c4)
+    c4 = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c4)
+    p4 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(c4)
+
+    c5 = tf.keras.layers.Conv2D(256, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(p4)
+    c5 = tf.keras.layers.Dropout(0.3)(c5)
+    c5 = tf.keras.layers.Conv2D(256, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c5)
+
+    # Expansive path (Decoder)
+    u6 = tf.keras.layers.Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same')(c5)
+    u6 = tf.keras.layers.concatenate([u6, c4])
+    c6 = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(u6)
+    c6 = tf.keras.layers.Dropout(0.2)(c6)
+    c6 = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c6)
+
+    u7 = tf.keras.layers.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same')(c6)
+    u7 = tf.keras.layers.concatenate([u7, c3])
+    c7 = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(u7)
+    c7 = tf.keras.layers.Dropout(0.2)(c7)
+    c7 = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c7)
+
+    u8 = tf.keras.layers.Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(c7)
+    u8 = tf.keras.layers.concatenate([u8, c2])
+    c8 = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(u8)
+    c8 = tf.keras.layers.Dropout(0.1)(c8)
+    c8 = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c8)
+
+    u9 = tf.keras.layers.Conv2DTranspose(16, (2, 2), strides=(2, 2), padding='same')(c8)
+    u9 = tf.keras.layers.concatenate([u9, c1], axis=3)
+    c9 = tf.keras.layers.Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(u9)
+    c9 = tf.keras.layers.Dropout(0.1)(c9)
+    c9 = tf.keras.layers.Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c9)
+
+    outputs = tf.keras.layers.Conv2D(1, (1, 1), activation='sigmoid')(c9)
+
+    model = tf.keras.Model(inputs=[inputs], outputs=[outputs])
+    return model
+
+# Build the model
+model = build_unet_model(IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS)
+model.summary()
+
+# CUSTOM METRICS - SAME NAMES AS TEST FILE
+def pixel_accuracy(y_true, y_pred):
+    """Pixel Accuracy (PA)"""
+    correct_pixels = tf.equal(y_true, tf.round(y_pred))
+    accuracy = tf.reduce_mean(tf.cast(correct_pixels, tf.float32))
+    return accuracy
+
+def iou(y_true, y_pred):
+    """Intersection over Union (IoU)"""
+    y_true_f = tf.reshape(y_true, [-1])
+    y_pred_f = tf.reshape(tf.round(y_pred), [-1])
+    intersection = tf.reduce_sum(y_true_f * y_pred_f)
+    union = tf.reduce_sum(y_true_f) + tf.reduce_sum(y_pred_f) - intersection
+    return intersection / (union + tf.keras.backend.epsilon())
+
+def dice_coefficient(y_true, y_pred):
+    """Dice Coefficient"""
+    y_true_f = tf.reshape(y_true, [-1])
+    y_pred_f = tf.reshape(tf.round(y_pred), [-1])
+    intersection = tf.reduce_sum(y_true_f * y_pred_f)
+    return 2. * intersection / (tf.reduce_sum(y_true_f) + tf.reduce_sum(y_pred_f) + tf.keras.backend.epsilon())
+
+# Compile the model with the custom metrics
+model.compile(
+    optimizer='adam',
+    loss="binary_crossentropy",
+    metrics=[pixel_accuracy, iou, dice_coefficient]
+)
+
+# Calculate number of steps per epoch and validation steps
+steps_per_epoch = len(train_images) // 32
+validation_steps = len(train_images) // 32
+
+# Ensure the dataset repeats and does not run out of data
+train_dataset = train_dataset.repeat()  # Repeat the dataset for multiple epochs
+test_dataset = test_dataset.repeat()  # Repeat the validation dataset as well
+
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+
+# IMPROVED CALLBACKS
+callbacks = [
+    # Early stopping callback
+    EarlyStopping(
+        monitor='val_loss',
+        mode='min',
+        patience=7,  # Increased patience
+        restore_best_weights=True,
+        verbose=1
+    ),
+    
+    # Model checkpoint - saves both .h5 and SavedModel format
+    ModelCheckpoint(
+        filepath='/kaggle/working/best_unet_model.h5',
+        monitor='val_iou',
+        mode='max',
+        save_best_only=True,
+        verbose=1
+    ),
+    
+    # Learning rate reduction
+    ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        min_lr=1e-7,
+        verbose=1
+    )
+]
+
+# Train the model
+print("🚀 Model eğitimi başlıyor...")
+history = model.fit(
+    train_dataset,
+    epochs=50,
+    validation_data=test_dataset,
+    steps_per_epoch=steps_per_epoch,
+    validation_steps=validation_steps,
+    callbacks=callbacks,
+    verbose=1
+)
+
+# Function to apply thresholding
+def threshold_image(image, threshold=0.5):
+    return np.where(image > threshold, 1.0, 0.0)
+
+# Function to plot predictions
+def plot_predictions(model, dataset, num_samples=3):
+    plt.figure(figsize=(12, 12), dpi=200)
+    
+    for images, masks in dataset.take(1):
+        predictions = model.predict(images)
+
+        for i in range(num_samples):
+            # Plot the input image
+            ax1 = plt.subplot(num_samples, 3, 3 * i + 1)
+            ax1.set_title("Input Image")
+            plt.imshow(tf.squeeze(images[i]).numpy())
+            ax1.axis("off")
+
+            # Plot the thresholded predicted mask
+            ax2 = plt.subplot(num_samples, 3, 3 * i + 2)
+            ax2.set_title("Predicted Mask")
+            thresholded_pred = threshold_image(tf.squeeze(predictions[i]).numpy(), threshold=0.5)
+            plt.imshow(thresholded_pred, cmap='gray')
+            ax2.axis("off")
+
+            # Plot the ground truth mask
+            ax3 = plt.subplot(num_samples, 3, 3 * i + 3)
+            ax3.set_title("Ground Truth Mask")
+            plt.imshow(tf.squeeze(masks[i]).numpy(), cmap='gray')
+            ax3.axis("off")
+
+        plt.tight_layout()
+        plt.show()
+        break
+
+# Display predictions
+plot_predictions(model, test_dataset, num_samples=3)
+
+# SAVE MODEL IN MULTIPLE FORMATS
+print("💾 Model kaydediliyor...")
+
+# 1. Standard H5 format (your original)
+model.save('/kaggle/working/unet_lesion_model.h5')
+print("✅ H5 format kaydedildi: unet_lesion_model.h5")
+
+# 2. SavedModel format (recommended)
+model.save('/kaggle/working/unet_lesion_savedmodel', save_format='tf')
+print("✅ SavedModel format kaydedildi: unet_lesion_savedmodel/")
+
+# 3. Save weights separately
+model.save_weights('/kaggle/working/unet_lesion_weights.h5')
+print("✅ Weights kaydedildi: unet_lesion_weights.h5")
+
+# 4. Save model architecture
+with open('/kaggle/working/unet_model_architecture.json', 'w') as f:
+    f.write(model.to_json())
+print("✅ Model architecture kaydedildi: unet_model_architecture.json")
+
+# Test set evaluation
+print("\n📊 Final model evaluation...")
+test_loss, test_pa, test_iou, test_dice = model.evaluate(test_dataset, steps=validation_steps, verbose=0)
+print(f"Final Test Loss: {test_loss:.4f}")
+print(f"Final Test Pixel Accuracy: {test_pa:.4f}")
+print(f"Final Test IoU: {test_iou:.4f}")
+print(f"Final Test Dice: {test_dice:.4f}")
+
+# Quick performance test on random images
+def test_model_on_random_images(model, num_samples=6):
+    """Test model on random images"""
+    random_indices = np.random.choice(len(train_images), num_samples, replace=False)
+    
+    plt.figure(figsize=(15, 10))
+    
+    for i, idx in enumerate(random_indices):
+        image_path = train_images[idx]
+        mask_path = train_masks[idx]
+        
+        # Load and preprocess
+        image, mask = load_image(image_path, mask_path)
+        
+        # Predict
+        prediction = model.predict(tf.expand_dims(image, axis=0), verbose=0)[0]
+        binary_pred = (prediction > 0.5).astype(np.float32)
+        
+        # Visualize
+        ax1 = plt.subplot(num_samples, 3, 3 * i + 1)
+        ax1.set_title("Original Image")
+        plt.imshow(image)
+        ax1.axis("off")
+        
+        ax2 = plt.subplot(num_samples, 3, 3 * i + 2)
+        ax2.set_title("Predicted Mask")
+        plt.imshow(tf.squeeze(binary_pred), cmap='gray')
+        ax2.axis("off")
+        
+        ax3 = plt.subplot(num_samples, 3, 3 * i + 3)
+        ax3.set_title("Ground Truth")
+        plt.imshow(tf.squeeze(mask), cmap='gray')
+        ax3.axis("off")
+    
+    plt.tight_layout()
+    plt.show()
+
+print("\n🧪 Final random image test...")
+test_model_on_random_images(model, num_samples=6)
+
+# Performance summary
+def quick_performance_test(model, num_test=100):
+    """Quick performance test on random images"""
+    random_indices = np.random.choice(len(train_images), num_test, replace=False)
+    
+    ious = []
+    dices = []
+    
+    print(f"🔍 {num_test} görüntüde performans testi yapılıyor...")
+    
+    for idx in random_indices:
+        image_path = train_images[idx]
+        mask_path = train_masks[idx]
+        
+        image, mask = load_image(image_path, mask_path)
+        prediction = model.predict(tf.expand_dims(image, axis=0), verbose=0)[0]
+        binary_pred = (prediction > 0.5).astype(np.float32)
+        
+        # Calculate metrics
+        intersection = tf.reduce_sum(mask * binary_pred)
+        union = tf.reduce_sum(mask) + tf.reduce_sum(binary_pred) - intersection
+        iou_score = intersection / (union + 1e-7)
+        dice_score = 2 * intersection / (tf.reduce_sum(mask) + tf.reduce_sum(binary_pred) + 1e-7)
+        
+        ious.append(float(iou_score))
+        dices.append(float(dice_score))
+    
+    print(f"\n=== FINAL PERFORMANCE SUMMARY ===")
+    print(f"Test Images: {num_test}")
+    print(f"Average IoU: {np.mean(ious):.4f} ± {np.std(ious):.4f}")
+    print(f"Average Dice: {np.mean(dices):.4f} ± {np.std(dices):.4f}")
+    print(f"Min IoU: {np.min(ious):.4f}")
+    print(f"Max IoU: {np.max(ious):.4f}")
+    print(f"Min Dice: {np.min(dices):.4f}")
+    print(f"Max Dice: {np.max(dices):.4f}")
+
+# Final performance test
+quick_performance_test(model, num_test=100)
+
+print("\n✅ Model eğitimi ve kaydı tamamlandı!")
+print("📁 Kaydedilen dosyalar:")
+print("   - unet_lesion_model.h5 (ana model)")
+print("   - unet_lesion_savedmodel/ (SavedModel format)")
+print("   - unet_lesion_weights.h5 (sadece ağırlıklar)")
+print("   - unet_model_architecture.json (model mimarisi)")
+print("\n🎯 Test için unet_lesion_model.h5 veya unet_lesion_savedmodel/ kullanabilirsiniz!")
