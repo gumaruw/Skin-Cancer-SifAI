@@ -7,6 +7,19 @@
 ## Model 
 - https://drive.google.com/drive/folders/1RKIYV1J6zSe0zLmM7GaBnvOKj0qh-77-?usp=sharing
 
+## Project Structure
+project/  
+├─ data/ —  HAM10000 Dataset    
+│   ├─ images/ —  Training & validation images  
+│   └─ masks/ —  Corresponding segmentation masks  
+├─ model/ —  Saved/produced model files    
+├─ test_results/ —  Output results, evaluation metrics, or predictions  
+├─ venv/ —  Virtual environment (Python dependencies)  
+├─ requirements.txt —  List of required Python packages  
+├─ test_unet.py —  Script for testing the U-Net model  
+├─ train.py —  Training script  
+└─ train_no_lambda_layer.py —  Training script variant without lambda layer  
+
 ---
 
 ## Test Results
