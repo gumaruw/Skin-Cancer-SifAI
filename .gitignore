@@ -1,0 +1,12 @@
+# === Data ===
+data/images/
+data/masks/
+
+# === Models ===
+model/
+
+# === Test results ===
+test_results/
+
+# === Virtual environment ===
+venv/
