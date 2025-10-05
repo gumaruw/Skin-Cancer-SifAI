@@ -54,7 +54,7 @@ project/
 3. Train or load ResNet50 for malignant vs. benign classification.  
 4. Evaluate using IoU, Dice, and accuracy metrics.  
 
-## Video Demonstration
+## Live Demo
 A video showcasing **model integration into the SifAI platform** is here:  [Google Drive Folder](https://drive.google.com/drive/folders/14x163_HpD7DB1LjPwVKphoIj2z6kkeHR?usp=sharing)
 
 ## Screenshots From SifAI
