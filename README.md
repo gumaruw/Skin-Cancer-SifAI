@@ -55,8 +55,7 @@ project/
 4. Evaluate using IoU, Dice, and accuracy metrics.  
 
 ## Live Demo
-A video showcasing **model integration into the SifAI platform** is here:  [**Google Drive Folder**](https://drive.google.com/drive/folders/14x163_HpD7DB1LjPwVKphoIj2z6kkeHR?usp=sharing)   
-
+A video showcasing **model integration into the SifAI platform** is here:  [Live Demo](https://drive.google.com/file/d/1r6wXeyQ4JtlczSjTIi7l5jErl6gyeBfa/view?usp=sharing)      
   
 <img width="800" height="393" alt="Ekran görüntüsü 2025-08-18 154330" src="https://github.com/user-attachments/assets/31781b43-e4b7-4f63-8e55-b8f743d3f3ed" />
 
